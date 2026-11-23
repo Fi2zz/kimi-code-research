@@ -8,7 +8,9 @@
 
 ## 1. 一句话定义
 
-Kimi Code CLI 是一个**终端优先的编码智能体运行时**：它把"模型 + 工具 + 权限 + 会话"打包成一个单文件可执行程序，同时通过同一套引擎对外提供 TUI、浏览器、桌面、IDE（ACP）和 SDK 五种入口。
+Kimi Code CLI 是一个**终端优先的编码智能体运行时**：它把"模型 + 工具 + 权限 + 会话"打包成一个单文件可执行程序，以 TUI 和 headless 为主要入口，并通过 `kimi acp`、`kimi web` 等子命令提供可选接入。
+
+本文及后续各篇以 CLI 与核心 agent 运行时为范围。上游 monorepo 还包含 Desktop 和 VS Code 扩展，但它们不是本文描述的目标产品。
 
 它不是一个"聊天壳"，而是一个有明确状态机的 agent runtime：
 
@@ -32,23 +34,22 @@ Kimi Code CLI 是一个**终端优先的编码智能体运行时**：它把"模�
 | 语言 | TypeScript（含 Vue） |
 | 规模 | `agent-core-v2/src` 1,006 个 TS 文件 / 143,393 行；全仓 TS/TSX/Vue 约 122 万行 |
 
-> 注意：仓库开源，但**模型服务是闭源的**（`managed:kimi-code` provider）。本地二进制与仓库同版本，因此"源码即行为"这一假设基本成立；闭源部分只有远端 API。
+> 注意：仓库开源，但**模型服务是闭源的**（`managed:kimi-code` provider）。本地二进制与仓库版本号相同，且 26 篇的来源核验显示其与 tag 2.7.2 高度吻合；源码可作为主要行为依据，但仍不等同于全部运行行为已逐项验证。
 
 ---
 
-## 3. 六种表面（同一引擎，不同外壳）
+## 3. CLI 入口与可选接入
 
-| 表面 | 入口 | 传输 | 说明 |
+| 类型 | 入口 | 传输 | 说明 |
 | --- | --- | --- | --- |
 | TUI | `kimi` | 进程内 | 主界面：输入框、会话流、审批面板、状态栏 |
 | Headless | `kimi -p "..."` | 进程内 | 单次提示，`text` / `stream-json` 输出，退出码有语义 |
-| Web | `kimi web` | 本地 HTTP/WS | 启动 KAP server，浏览器打开 |
-| Desktop | Electron | 内嵌 KAP server | 复用同一 server，渲染层是 Vue |
-| IDE | `kimi acp` | stdio NDJSON | Agent Client Protocol（Zed、JetBrains） |
-| SDK | `@moonshot-ai/kimi-code-sdk` | 进程内 / IPC | 供其他程序嵌入 |
-| Remote Control | `kimi rc` | WebSocket 隧道 | 把本机注册到 relay，外部访问本地 server |
+| IDE 接入 | `kimi acp` | stdio NDJSON | Agent Client Protocol（Zed、JetBrains 等） |
+| 可选 Web | `kimi web` | 本地 HTTP/WS | 启动 KAP server，浏览器打开 |
+| 可选远程控制 | `kimi rc` | WebSocket 隧道 | 把本机注册到 relay，外部访问本地 server |
+| 嵌入接口 | `@moonshot-ai/kimi-code-sdk` | 进程内 / IPC | 供其他程序嵌入核心引擎；不是 CLI 子命令 |
 
-关键点：**TUI 不是"另一个 agent"**。它通过 `KimiHarness` 调 v2 引擎；Web/桌面通过 KAP REST/WS 调同一引擎；ACP 通过 NDJSON 调同一引擎。因此权限、工具、会话行为在所有表面一致。
+关键点：**TUI 不是"另一个 agent"**。它通过 `KimiHarness` 调 v2 引擎；ACP 和可选 KAP 入口也复用核心引擎。这里复用的是权限、工具和会话核心逻辑，不代表不同产品形态具有相同的 UI、配置或完整能力。Desktop 与 VS Code 扩展不在本套文档的目标范围内。
 
 ---
 
@@ -79,17 +80,17 @@ Kimi Code CLI 是一个**终端优先的编码智能体运行时**：它把"模�
 kimi-code/
 ├── apps/
 │   ├── kimi-code/        # CLI 主程序：TUI、web 子命令、session-import、native 构建
-│   ├── desktop/          # Electron 应用（内嵌 KAP server）
-│   ├── vscode/           # VS Code 扩展（进程内 harness + webview）
+│   ├── desktop/          # 上游 Desktop（内嵌 KAP server；非本调研范围）
+│   ├── vscode/           # 上游 VS Code 扩展（进程内 harness + webview；非本调研范围）
 │   └── vis/              # 会话可视化（Vite）
 ├── packages/
 │   ├── core/             # 无 DI 内核：loop、LLM、tool executor、store
 │   ├── agent-core-v2/    # DI×Scope 引擎：权限、工具、会话、子代理、特性
-│   ├── kap-server/       # REST/WS 服务（Web/桌面后端）
+│   ├── kap-server/       # CLI `kimi web` 的 REST/WS 服务；上游 Desktop 也复用
 │   ├── acp-server/       # ACP host（stdio）
 │   ├── klient/           # 客户端 SDK：契约门面，可走 IPC/内存
-│   ├── node-sdk/         # KimiHarness（TUI/VS Code 用）
-│   ├── app-*             # Web/桌面共享 UI 逻辑（core/client/ui/components…）
+│   ├── node-sdk/         # KimiHarness（TUI 与上游 VS Code 扩展使用）
+│   ├── app-*             # Web/上游 Desktop 共享 UI 逻辑（非 CLI 核心）
 │   ├── pi-tui/           # 终端 UI 库（差分渲染）
 │   ├── minidb/           # 纯 Node 嵌入式 KV（WAL + snapshot）
 │   ├── tree-sitter-bash/ # 纯 TS bash parser（危险命令分析）
@@ -186,7 +187,7 @@ apps/*  ──►  klient / node-sdk  ──►  agent-core-v2  ──►  core
 
 1. **是否要单二进制**：要，则 Node 24.15 + SEA + 资源 manifest；不要，则先做 npm CLI，后补 SEA。
 2. **是否要事件溯源**：要，则先定义 Event2 / state fold / wire 格式；不要，则退化为 JSONL 转录，后续很难加分叉/回放。
-3. **是否要多表面**：要，则引擎必须与传输解耦（core 不依赖 TUI/server）。
+3. **是否要附加接入**：首版只需 headless + TUI；引擎仍应与传输解耦（core 不依赖 TUI/server），ACP/KAP 按需要后补。
 4. **是否要动态工具**：要，则工具注册表必须支持 `inline` / `deferred` 两种披露。
 5. **是否要 OS 沙箱**：原版没有；如果你要，必须在环境层加，而不是在权限层假装有。
 

@@ -1,12 +1,14 @@
-# 21 · 表面层：TUI、Web/KAP、ACP、桌面与远程控制
+# 21 · CLI 入口与附加服务：TUI、Headless、ACP、KAP 与远程控制
 
-> 目标：解释同一个引擎如何被五种外壳驱动，以及每种外壳的协议、鉴权、能力差异。重实现时，先定"引擎边界"，再逐个接表面。
+> 目标：解释 CLI 如何在同一核心引擎上提供终端、进程间和可选网络入口，以及各入口的协议、鉴权与能力差异。重实现时先做 headless + TUI；ACP、KAP 和远程控制按产品需要增加。
+>
+> 范围：本文不把 Kimi Code Desktop 或 VS Code 扩展当作 CLI 的组成部分。ACP 是 `kimi acp` 提供的 IDE 接入协议，不等同于 VS Code 扩展。
 
 ---
 
 ## 1. 共同起点
 
-所有表面都：
+本文描述的 CLI 入口都：
 
 1. 调 `bootstrap()` 创建 App `Scope`；
 2. 通过 DI 拿 `IConfigService`、`ISessionManager`、`IAgentLifecycleService` 等服务；
@@ -130,28 +132,18 @@ Headless `kimi -p`：
 
 ---
 
-## 5. 桌面
+## 5. 非目标：Desktop 与 VS Code 扩展
 
-- Electron main 启动内嵌 KAP server（`127.0.0.1:0`）；
-- `webAssetsDir = <resources>/desktop-dist`；
-- CORS 允许 `app://renderer`；
-- token 来自 `desktopServerSecret(homeDir)`；
-- 遥测接入 core；
-- renderer 是 Vue `app-client`，走 REST/WS；
-- 也支持外部 server：`KIMI_SERVER_URL` + `server.token`。
+上游 monorepo 还包含两个独立产品形态：
 
----
+- Desktop 由 Electron main 启动内嵌 KAP server，renderer 走 REST/WS；
+- VS Code 扩展在扩展宿主内运行 `KimiRuntime` / `createKimiHarness`，webview 使用自己的 RPC bridge。
 
-## 6. VS Code
-
-- 扩展宿主内跑 `KimiRuntime`（`createKimiHarness`，进程内）；
-- webview 通过校验过的 RPC bridge 通信；
-- 扩展自己的设置（`kimi.yoloMode`、自动保存、编辑器上下文）不是 `config.toml`；
-- yolo 应用到当前会话。
+二者可以复用核心引擎，但运行方式、配置和产品能力不能直接套用到 CLI。它们的实现与重实现不在本文范围内。
 
 ---
 
-## 7. 远程控制
+## 6. 远程控制
 
 `kimi rc` / `packages/remote-control`：
 
@@ -168,22 +160,22 @@ Headless `kimi -p`：
 
 ---
 
-## 8. 表面能力矩阵
+## 7. CLI 入口能力矩阵
 
-| 能力 | TUI | Web | Desktop | ACP | VS Code |
-| --- | --- | --- | --- | --- | --- |
-| 会话列表/恢复 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 审批 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 图片/视频输入 | ✓ | ✓ | ✓ | 图片 | ✓ |
-| Plan 审阅 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 多会话 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 终端渲染 | ✓ | — | — | — | — |
-| 浏览器访问 | — | ✓ | — | — | — |
-| 远程控制 | — | ✓ | — | — | — |
+| 能力 | TUI | Headless | ACP | 可选 Web/KAP |
+| --- | --- | --- | --- | --- |
+| 会话列表/恢复 | ✓ | 命令参数选择会话 | ✓ | ✓ |
+| 人工审批 | ✓ | 非交互，默认拒绝 ask | ✓ | ✓ |
+| 图片/视频输入 | ✓ | 取决于输入与模型 | 图片 | ✓ |
+| Plan 审阅 | ✓ | 非交互时保持 Plan | ✓ | ✓ |
+| 多会话 | ✓ | 每次进程运行一次任务 | ✓ | ✓ |
+| 终端渲染 | ✓ | 文本 / stream-json | — | — |
+| 浏览器访问 | — | — | — | ✓ |
+| 远程控制 | — | — | — | 通过 `kimi rc` 可选启用 |
 
 ---
 
-## 9. 不变量
+## 8. 不变量
 
 1. 表面不能绕过权限/工具策略；所有决策在引擎层。
 2. 鉴权必须在 upgrade/路由之前。
@@ -191,20 +183,19 @@ Headless `kimi -p`：
 4. 非 loopback 无 TLS 必须拒绝（除非显式危险开关）。
 5. token 必须 `0600`，不能写日志。
 6. ACP 的模式映射必须一一对应，不能把 `auto` 映射成 `manual`。
-7. 桌面/VS Code 的本地设置不能覆盖引擎配置语义。
+7. 各入口的本地设置不能暗中改变引擎配置语义；非目标产品的设置不属于本矩阵。
 8. 远程控制只是转发，不能改变鉴权模型。
 
 ---
 
-## 10. 重实现最小版
+## 9. 重实现最小版
 
 1. 先做 headless + 引擎 API。
 2. TUI 接引擎（先纯文本）。
-3. KAP：会话 CRUD + prompt + 审批 + WS 事件。
-4. 加 token/host/origin。
-5. ACP：`initialize` + `session/new` + `prompt` + 审批。
-6. 桌面/VS Code 复用 KAP。
-7. 远程控制最后做。
+3. 用真实 CLI 验收会话、工具、审批和恢复。
+4. 需要 IDE 集成时再加 ACP：`initialize` + `session/new` + `prompt` + 审批。
+5. 需要浏览器入口时再加 KAP：会话 CRUD + prompt + 审批 + WS，并加 token/host/origin。
+6. 远程控制最后做；Desktop/VS Code 不属于本计划。
 
 测试重点：
 
@@ -218,12 +209,11 @@ Headless `kimi -p`：
 
 ---
 
-## 11. 证据索引
+## 10. 证据索引
 
 - `apps/kimi-code/src/{main.ts,cli/**,tui/**}`
 - `packages/kap-server/src/{start.ts,routes/**,middleware/**,transport/ws/**,security/**}`
 - `packages/acp-server/src/{start.ts,server.ts,modes.ts,config-options.ts}`
-- `apps/desktop/src/main/server/*`
-- `apps/vscode/src/runtime/*`
+- 非目标背景：`apps/desktop/src/main/server/*`、`apps/vscode/src/runtime/*`
 - `packages/remote-control/src/*`
 - `packages/node-sdk/src/*`

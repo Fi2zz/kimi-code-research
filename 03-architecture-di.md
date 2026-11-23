@@ -225,7 +225,7 @@ class Ledger {
 ```
 
 - 每个服务、子容器、监听器都进 ledger。
-- 释放顺序按注册顺序（LIFO 风格）。
+- 释放按注册的逆序执行（LIFO）。
 - `isActive` 阻止"已释放后还注册"的泄漏。
 - Scope dispose 幂等；先释放子容器，再 teardown 本 ledger。
 

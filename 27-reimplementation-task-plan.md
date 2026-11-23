@@ -1,38 +1,38 @@
-# Kimi Code Reimplementation Implementation Plan
+# Kimi Code CLI 重实现详细任务计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **供 agent 执行者使用**：按任务逐项执行；步骤用 checkbox（`- [ ]`）跟踪。本文拥有任务、依赖和验收细节，范围与里程碑以 `25-reimplementation-plan.md` 为准。
 
-**Goal:** Build a clean-room TypeScript reimplementation of the Kimi Code CLI architecture: event-sourced sessions, a tool registry with a first-match-wins permission chain, a pure-TS dangerous-command analyzer, and a headless/TUI/server surface over one engine.
+**目标**：用 TypeScript 清洁室重实现 Kimi Code CLI 核心，包括事件溯源会话、工具注册表、first-match-wins 权限链、危险命令分析、上下文安全，以及同一引擎上的 headless/TUI。ACP、KAP 和 SEA 是后续可选任务。
 
-**Architecture:** `packages/core` owns the loop, LLM protocols, tool executor, and storage interfaces with no DI. `packages/agent-core` owns DI×Scope, sessions, events, tools, permissions, MCP/skills/plugins. `apps/cli`, `packages/tui`, and `apps/server` are transport/render shells that call the engine. Every subsystem has a single owning document in `docs/`.
+**架构**：`packages/core` 负责 loop、LLM 协议、工具执行和存储接口；`packages/agent-core` 负责会话、事件、工具、权限、MCP/Skills 与显式生命周期。`apps/cli` 和 `packages/tui` 只负责传输与渲染。首版不实现完整 DI Cascade；每个子系统只有一份 owning document。
 
-**Tech Stack:** Node.js 24.15+ (SEA), TypeScript 5.x strict ESM, pnpm 10 workspaces, zod, immer, picomatch, commander, Fastify + ws, Vitest, SQLite (better-sqlite3), @modelcontextprotocol/sdk, @agentclientprotocol/sdk.
+**技术栈**：Node.js 24.15+（SEA），TypeScript 5.x strict ESM，pnpm 10 workspaces，zod，immer，picomatch，commander，Vitest；可选服务使用 Fastify + ws、@modelcontextprotocol/sdk、@agentclientprotocol/sdk。SQLite 仅在实现可重建会话索引时引入。
 
-**Spec:** `docs/01-product-and-repo.md` … `docs/26-binary-vs-source-verification.md` (this repo). Read the owning doc before each task.
+**规格**：本仓库根目录的 `01-product-and-repo.md` 至 `26-binary-vs-source-verification.md`。每个任务开始前阅读对应 owning doc；25 与本文件必须保持同步。
 
-## Global Constraints
+## 全局约束
 
-- Node `>=24.15.0` for SEA; development may use `>=22.19.0`. `engines` stays `>=22.19.0`.
-- ESM only (`"type": "module"`); no CommonJS source files.
-- TypeScript `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`.
-- Public functions and exported types require JSDoc only where the doc says so; no dead code.
-- Every durable event has a zod schema and a stable `type` string. Changing a schema requires a migration.
-- Tool messages are appended in **tool-call order**, never completion order.
-- Permission policy order is fixed; `deny` is always evaluated before any `approve`.
-- Sensitive-file hard block is enforced in path resolution, not only in a policy.
-- No OS sandbox is claimed; `auto`/`yolo` are documented as unsupervised modes.
-- Tests live under `packages/*/test/**` or `apps/*/test/**`; one behavior per test.
-- Commit after every task with a conventional message.
+- SEA 使用 Node `>=24.15.0`；开发可用 `>=22.19.0`，`engines` 保持 `>=22.19.0`。
+- 仅使用 ESM（`"type": "module"`），不写 CommonJS 源文件。
+- TypeScript 开启 `strict`、`noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`、`verbatimModuleSyntax`。
+- 公共函数和导出类型只在 owning doc 要求时写 JSDoc；不留死代码。
+- 每个 durable event 都有 zod schema 和稳定 `type`；schema 变更必须有迁移。
+- 工具消息按 **tool-call 顺序**追加，绝不按完成顺序。
+- 权限策略顺序固定；`deny` 必须先于任何 `approve`。
+- 敏感文件硬阻断在路径解析层执行，不能只放在策略层。
+- 不声称有 OS 沙箱；`auto`/`yolo` 是非监督模式，不可信仓库必须在外部沙箱运行。
+- 测试放在 `packages/*/test/**` 或 `apps/*/test/**`，每个测试只验证一个行为。
+- 每个任务完成后做一次 conventional commit。
 
-## Review Focus
+## 重点风险
 
-These are the five failure modes most likely to bite a user; each has a dedicated test in the task that owns the code.
+以下问题必须由 owning task 的测试或明确的外部安全约束覆盖，不能只写在概述里。
 
-1. **Tool call/result pairing** — a missing or duplicate `toolCallId` makes every provider reject the next request.
-2. **Compaction split inside a tool exchange** — cutting between an assistant tool call and its result produces an invalid history.
-3. **Permission chain inversion** — moving `auto-mode-approve` above `user-configured-deny` silently lets denied tools run.
-4. **Sensitive-file bypass via Bash** — `Read` is blocked, but `Bash cat .env` is not; the user expects one boundary.
-5. **Wire durability** — a torn last line or a replayed event must not corrupt state or double-apply a fold.
+1. **Tool call/result 配对**：缺失或重复 `toolCallId` 会使 provider 拒绝后续请求。
+2. **压缩切在 tool exchange 内**：assistant tool call 与结果被切开会生成非法历史。
+3. **权限链顺序反转**：把 `auto-mode-approve` 移到 `user-configured-deny` 前面会静默执行用户已拒绝的工具。
+4. **Bash 绕过敏感文件边界**：`Read` 被阻断不代表 `Bash cat .env` 被阻断。首版必须明确该缺口并要求不可信任务使用外部沙箱；不能把文字说明当作防护。
+5. **Wire 持久化**：撕裂尾、重放事件或追加失败不能损坏状态、重复 fold，或让调用方误以为事件已持久化。
 
 ---
 
@@ -43,26 +43,31 @@ packages/core/
   src/llm/{message,usage,protocol/openai,stream}
   src/loop/{loop,state,outcome}
   src/tool/{executor,contract}
-  src/store/{appendLog,atomic}
   test/...
 packages/agent-core/
-  src/di/{service,scope,collection}
+  src/store/atomic
   src/event/{event2,dispatcher,state}
   src/session/{wire,sessionStore,stateJson,branch}
+  src/context/{projection,compaction}
   src/tool/{registry,read,write,edit,grep,glob,bash,truncation,scheduler}
   src/permission/{types,modes,policy,rules,pathGuard,approval}
   src/session/subagent/*
   src/mcp/*
   src/skills/*
   test/...
+packages/tree-sitter-bash/
+  src/{parse,node,lexer,parser}
+packages/acp/           # optional ACP
+  src/{server,modes}
 packages/tui/
   src/{app,input,stream,approval}
 apps/cli/
   src/{main,run,commands}
-apps/server/
+apps/server/          # optional KAP
   src/{server,routes,auth}
-docs/                  # this specification
 ```
+
+规格文档位于仓库根目录，不使用 `docs/` 前缀。
 
 ---
 
@@ -90,15 +95,14 @@ Modify root `package.json` dependencies:
   "fastify": "^5.0.0",
   "ws": "^8.18.0",
   "@modelcontextprotocol/sdk": "^1.20.0",
-  "@agentclientprotocol/sdk": "^0.4.0",
-  "better-sqlite3": "^12.0.0"
+  "@agentclientprotocol/sdk": "^0.4.0"
 },
 "devDependencies": {
   "@types/node": "^24.0.0",
   "@types/picomatch": "^4.0.0",
   "@types/ws": "^8.18.0",
-  "@types/better-sqlite3": "^7.6.0",
   "oxlint": "^1.0.0",
+  "postject": "^1.0.0-alpha.6",
   "tsx": "^4.20.0",
   "typescript": "^5.9.0",
   "vitest": "^4.0.0"
@@ -254,7 +258,7 @@ interface EventDispatcher {
 
 ```ts
 it("folds a durable event into replayable state", async () => {
-  // dispatch CounterAdd(2) twice; expect count 3
+  // dispatch CounterAdd(2) twice from zero; expect count 4
 });
 
 it("is idempotent across restore", async () => {
@@ -263,6 +267,10 @@ it("is idempotent across restore", async () => {
 
 it("ignores an unknown event type without throwing", async () => {
   // restore([{type:"unknown",time:1}]); expect state unchanged
+});
+
+it("does not commit state when a durable append fails", async () => {
+  // injected wire rejects; expect dispatch to reject and state to remain unchanged
 });
 ```
 
@@ -275,12 +283,12 @@ Expected: FAIL.
 
 - `event2.ts`: static registry keyed by `type`; register rejects duplicate and durable-without-schema.
 - `state.ts`: `defineState` returns builder; `.replayable` records a schema and fold map; `.on` rejects duplicate folds.
-- `dispatcher.ts`: sequential queue; for each event, find folds by `type`, produce draft with immer, commit, then append if `durable` (wire injected later); publish if `observable`.
+- `dispatcher.ts`: sequential queue; find folds by `type` and prepare drafts with immer. For durable events, await wire append before committing state or publishing; append failure rejects the dispatch and leaves state unchanged. The wire adapter is injected in Task 3.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm vitest run packages/agent-core/test/event/dispatcher.test.ts`  
-Expected: PASS (3 tests).
+Expected: PASS (4 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -341,8 +349,8 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement wire and layout**
 
-- `wire.ts`: JSONL append; metadata on seal; read skips malformed lines and reports them; on `min_protocol_version > 1.5` throw `WireVersionError`.
-- `sessionStore.ts`: `sessions/<workspaceId>/<sessionId>/agents/<agentId>/wire.jsonl`; `state.json` via `atomicWriteFile`.
+- `wire.ts`: JSONL append; metadata on seal. Missing/malformed first-line metadata throws `STORAGE_CORRUPTED`; later malformed records are reported without crashing restore; on `min_protocol_version > 1.5` throw `WireVersionError`. Append errors propagate to the dispatcher.
+- `sessionStore.ts`: `sessions/<workspaceId>/<sessionId>/agents/<agentId>/wire.jsonl`; `state.json` via `atomicWriteFile`; wire/state writes require the session lock.
 - `stateJson.ts`: version 2 shape from doc 23; read legacy `workDir` fallback.
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -460,7 +468,7 @@ Expected: FAIL.
 
 - Accumulator: append text/think; tool args by `_streamIndex`; finish maps reason.
 - `sanitizeToolCallId`: `[^a-zA-Z0-9_-]` → `_`, max 64, empty → `randomUUID`.
-- `dedupeToolCallIds`: `_2`, `_3`.
+- `dedupeToolCallIds`: `_2`, `_3`; truncate the base so the result stays within 64 chars, and skip suffixes already present in the batch.
 - `verifyToolExchanges`: every tool message has a preceding open call; no duplicate results; no unanswered calls.
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -477,13 +485,16 @@ git commit -m "feat: add streaming accumulator and tool-call id rules"
 
 ---
 
-## Task 6: Turn/step loop and minimal tool executor
+## Task 6: Turn/step loop, tool executor, and context safety
 
 **Files:**
 - Create: `packages/core/src/loop/state.ts`
 - Create: `packages/core/src/loop/loop.ts`
 - Create: `packages/core/src/tool/executor.ts`
+- Create: `packages/agent-core/src/context/projection.ts`
+- Create: `packages/agent-core/src/context/compaction.ts`
 - Test: `packages/core/test/loop/loop.test.ts`
+- Test: `packages/agent-core/test/context/compaction.test.ts`
 
 **Interfaces:**
 - Consumes: `MessageAccumulator`, `verifyToolExchanges`.
@@ -497,6 +508,9 @@ interface Loop {
   run(): Promise<TurnResult>;
   abort(): void;
 }
+function projectHistory(messages: readonly Message[]): Message[];
+function canSplitAfter(messages: readonly Message[], index: number): boolean;
+function compactHistory(messages: readonly Message[], summarize: (input: Message[]) => Promise<string>): Promise<Message[]>;
 ```
 
 - [ ] **Step 1: Write failing tests**
@@ -513,11 +527,19 @@ it("appends tool messages in call order even when completion order differs", asy
 it("aborts an in-flight request and keeps the turn resumable", async () => {
   // abort during generate; expect status "interrupted"
 });
+
+it("does not compact between a tool call and its result", async () => {
+  // assistant tool call + tool result; every split inside the exchange is invalid
+});
+
+it("rejects an empty compaction summary without replacing history", async () => {
+  // summarize returns ""; expect rejection and original history unchanged
+});
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pnpm vitest run packages/core/test/loop/loop.test.ts`  
+Run: `pnpm vitest run packages/core/test/loop/loop.test.ts packages/agent-core/test/context/compaction.test.ts`
 Expected: FAIL.
 
 - [ ] **Step 3: Implement turn/step**
@@ -525,17 +547,19 @@ Expected: FAIL.
 - State: `idle | running | interrupted`, `turn {id, step}`, `messages`.
 - Loop: request → if tool calls, execute all, append results in call order, next step; else finish.
 - Max steps; abort controller.
+- Projection: pair calls/results, drop orphan results, and synthesize interrupted results as specified in doc 07.
+- Manual compaction: choose only a legal split, require a non-empty summary, preserve the original history on failure. Automatic overflow recovery is explicitly out of scope for this plan.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `pnpm vitest run packages/core/test/loop/loop.test.ts`  
+Run: `pnpm vitest run packages/core/test/loop/loop.test.ts packages/agent-core/test/context/compaction.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/core/src/loop packages/core/src/tool packages/core/test/loop
-git commit -m "feat: add turn/step loop and tool executor"
+git add packages/core/src/loop packages/core/src/tool packages/core/test/loop packages/agent-core/src/context packages/agent-core/test/context
+git commit -m "feat: add loop, tool execution, and safe manual compaction"
 ```
 
 ---
@@ -548,6 +572,7 @@ git commit -m "feat: add turn/step loop and tool executor"
 - Create: `packages/agent-core/src/tool/read.ts`
 - Create: `packages/agent-core/src/tool/write.ts`
 - Create: `packages/agent-core/src/tool/edit.ts`
+- Create: `packages/agent-core/src/permission/pathGuard.ts`
 - Test: `packages/agent-core/test/tool/fileTools.test.ts`
 
 **Interfaces:**
@@ -596,7 +621,7 @@ Expected: FAIL.
 - `read.ts`: path resolution, line/column/char paging (start with simple whole-file + max chars).
 - `write.ts`: read-before-write; `overwrite`/`append`.
 - `edit.ts`: unique `old_string`; read-before-write; `replace_all`.
-- Path guard: sensitive files throw `PATH_SENSITIVE`.
+- `pathGuard.ts`: own canonical path resolution and sensitive-file hard block; throw `PATH_SENSITIVE`. Task 12 extends this same module with workspace rules instead of reimplementing it.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -606,8 +631,8 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/agent-core/src/tool packages/agent-core/test/tool
-git commit -m "feat: add tool registry and read/write/edit"
+git add packages/agent-core/src/tool packages/agent-core/src/permission/pathGuard.ts packages/agent-core/test/tool
+git commit -m "feat: add file tools and sensitive path guard"
 ```
 
 ---
@@ -697,8 +722,12 @@ interface Task { id: string; status: "running" | "completed" | "failed" | "kille
 - [ ] **Step 1: Write failing tests**
 
 ```ts
-it("kills a foreground command after the timeout", async () => {
-  // sleep 5, timeout 1; expect isError and process gone
+it("moves a foreground command to background after the timeout by default", async () => {
+  // sleep 5, timeout 1; expect a task id and a still-running process
+});
+
+it("kills on foreground timeout when bash_auto_background_on_timeout is false", async () => {
+  // disable auto-background; expect SIGTERM, then SIGKILL after the grace period
 });
 
 it("returns a task id for a background command", async () => {
@@ -718,8 +747,8 @@ Expected: FAIL.
 - [ ] **Step 3: Implement**
 
 - Spawn via shell; `stdio: pipe`; close stdin; collect output with cap.
-- Foreground timeout: SIGTERM → 5s → SIGKILL.
-- Background: detach, write `tasks/<id>/output.log`, emit completion.
+- Foreground timeout: by default detach and keep running as a background task; only when `bash_auto_background_on_timeout=false` use SIGTERM → 5s → SIGKILL.
+- Background: detach, write `tasks/<id>/output.log`, emit completion; default timeout 600s except print mode defaults to no timeout.
 - `TaskList/TaskOutput/TaskStop/WaitFor` minimal.
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -739,11 +768,14 @@ git commit -m "feat: add bash tool and background tasks"
 ## Task 10: Dangerous command analysis
 
 **Files:**
+- Create: `packages/tree-sitter-bash/package.json`
+- Create: `packages/tree-sitter-bash/src/{parse,node,lexer,parser}.ts`
 - Create: `packages/agent-core/src/permission/dangerousCommand.ts`
+- Modify: `packages/agent-core/package.json` (workspace dependency on `@reimpl/tree-sitter-bash`)
 - Test: `packages/agent-core/test/permission/dangerousCommand.test.ts`
 
 **Interfaces:**
-- Consumes: `parse` from `@reimpl/tree-sitter-bash` (create in this task or vendor a parser).
+- Consumes: `parse` from the local `@reimpl/tree-sitter-bash` package created by this task; no unregistered external parser is assumed.
 - Produces:
 
 ```ts
@@ -775,7 +807,7 @@ Expected: FAIL.
 - Start with a tokenizer that produces `command`, `command_name`, `word`, `raw_string`, `string`.
 - Implement `collectCommands`, `analyzeCommand`, `analyzeInvocation`, `literalText`, `normalizeCommandName`, `dropLeadingOptions`, `dropLaunchWrapperOperands`.
 - Rules: sudo/doas, env/command/exec/nohup/nice, sh -c, eval, busybox, rm, dd, systemctl, init, mkfs.
-- Fail-closed: parse error → `unanalyzable`; depth ≥4 → `unanalyzable`.
+- Parse error → `unanalyzable`; depth ≥4 → `unanalyzable`. The permission mode owns the final result: manual asks, yolo allows unanalyzable commands, auto skips this policy.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -785,8 +817,8 @@ Expected: all vectors pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/agent-core/src/permission packages/agent-core/test/permission
-git commit -m "feat: add dangerous command analysis"
+git add packages/tree-sitter-bash packages/agent-core/package.json packages/agent-core/src/permission packages/agent-core/test/permission
+git commit -m "feat: add local bash parser and dangerous command analysis"
 ```
 
 ---
@@ -796,16 +828,19 @@ git commit -m "feat: add dangerous command analysis"
 **Files:**
 - Create: `packages/agent-core/src/permission/types.ts`
 - Create: `packages/agent-core/src/permission/modes.ts`
+- Create: `packages/agent-core/src/permission/rules.ts`
 - Create: `packages/agent-core/src/permission/policy.ts`
 - Create: `packages/agent-core/src/permission/policies/*.ts`
 - Test: `packages/agent-core/test/permission/policyChain.test.ts`
 
 **Interfaces:**
-- Consumes: `analyzeBash`, rule matcher.
+- Consumes: `analyzeBash`, `picomatch`, and config; this task implements the rule matcher before assembling the chain.
 - Produces:
 
 ```ts
 type PermissionMode = "manual" | "yolo" | "auto";
+interface PermissionRule { decision: "allow"|"deny"|"ask"; scope: "turn-override"|"session-runtime"|"project"|"user"; pattern: string; reason?: string; }
+function matchRule(rule: PermissionRule, toolName: string, matchesArgs?: (s:string)=>boolean): boolean;
 interface PermissionPolicy { name: string; evaluate(ctx): PermissionResult | undefined; }
 class PermissionPolicyService {
   evaluate(ctx): Promise<{ policyName: string; result: PermissionResult } | undefined>;
@@ -828,7 +863,9 @@ it.each([
 Run: `pnpm vitest run packages/agent-core/test/permission/policyChain.test.ts`  
 Expected: FAIL.
 
-- [ ] **Step 3: Implement the chain in the exact order**
+- [ ] **Step 3: Implement rule matching and the chain in the exact order**
+
+`rules.ts` parses `ToolName(arg-pattern)`, matches MCP wildcards with picomatch, and lets each tool interpret argument patterns. Then assemble:
 
 ```
 auto-mode-ask-user-question-deny
@@ -860,11 +897,10 @@ git commit -m "feat: add permission modes and 13-policy chain"
 
 ---
 
-## Task 12: Rules, path guard, and approval service
+## Task 12: Workspace guard and approval service
 
 **Files:**
-- Create: `packages/agent-core/src/permission/rules.ts`
-- Create: `packages/agent-core/src/permission/pathGuard.ts`
+- Modify: `packages/agent-core/src/permission/pathGuard.ts`
 - Create: `packages/agent-core/src/permission/approval.ts`
 - Test: `packages/agent-core/test/permission/rules.test.ts`
 - Test: `packages/agent-core/test/permission/pathGuard.test.ts`
@@ -875,8 +911,6 @@ git commit -m "feat: add permission modes and 13-policy chain"
 - Produces:
 
 ```ts
-interface PermissionRule { decision: "allow"|"deny"|"ask"; scope: "turn-override"|"session-runtime"|"project"|"user"; pattern: string; reason?: string; }
-function matchRule(rule: PermissionRule, toolName: string, matchesArgs?: (s:string)=>boolean): boolean;
 function resolvePathAccess(path: string, cwd: string, workspace: WorkspaceConfig): string; // throws PATH_SENSITIVE
 interface ApprovalService { request(req): Promise<ApprovalResponse>; }
 ```
@@ -904,9 +938,8 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-- Rule parsing `ToolName(arg-pattern)`; picomatch; `deny > ask > allow`.
-- Sensitive list from doc 16; throw before policy.
-- Workspace guard: relative outside → reject; absolute outside → allow to policy.
+- Reuse Task 11's rule parser/matcher; `deny > ask > allow` is enforced by policy order.
+- Extend Task 7's `pathGuard.ts`: sensitive list from doc 16 throws before policy; relative outside → reject; absolute outside → allow to policy.
 - Approval: event/request, non-interactive deny, `scope: session` stores the pattern.
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1047,7 +1080,7 @@ git commit -m "feat: add MCP stdio, config layers, and tool naming"
 - Produces:
 
 ```ts
-interface Skill { name: string; description: string; type: "prompt"|"inline"|"flow"; body: string; dir: string; }
+interface Skill { name: string; description: string; type: "prompt"|"inline"|"flow"|"reference"; body: string; dir: string; }
 function discoverSkills(roots: readonly string[]): Promise<readonly Skill[]>;
 function renderSkillListing(skills: readonly Skill[]): string;
 ```
@@ -1093,17 +1126,23 @@ git commit -m "feat: add skills discovery and invocation"
 - Create: `packages/tui/src/input.ts`
 - Create: `packages/tui/src/stream.ts`
 - Create: `packages/tui/src/approval.ts`
+- Create: `apps/cli/src/{main,run}.ts`
 - Test: `packages/tui/test/render.test.ts`
+- Test: `apps/cli/test/e2e.test.ts`
 
 **Interfaces:**
 - Consumes: `Loop`, `PermissionGate`.
-- Produces: a terminal app with input box, streamed assistant text, tool cards, approval panel.
+- Produces: a terminal app with input box, streamed assistant text, tool cards, approval panel, plus an executable CLI entry for real-process tests.
 
 - [ ] **Step 1: Write failing test**
 
 ```ts
 it("renders a streamed assistant message without duplicating text", () => {
   // render("Hel"), render("Hello"); expect output contains "Hello" once
+});
+
+it("persists and resumes a real CLI session across processes", async () => {
+  // spawn the built CLI with a fake provider: prompt + tool approval, exit, resume, then continue
 });
 ```
 
@@ -1118,10 +1157,12 @@ Expected: FAIL.
 - Stream rendering with diff updates.
 - Approval panel: `1/2/3`, Esc; "approve for session".
 - Status bar: model, cwd, permission mode.
+- CLI entry: wire headless/TUI to the engine; use a scripted local provider in E2E so no external model service is required.
+- E2E must exercise the real binary/process boundary, including approval, wire persistence, process exit, resume, and a subsequent tool call.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `pnpm vitest run packages/tui`  
+Run: `pnpm vitest run packages/tui apps/cli/test/e2e.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1133,7 +1174,7 @@ git commit -m "feat: add terminal UI"
 
 ---
 
-## Task 17: KAP server (REST/WS)
+## Task 17: Optional KAP server (REST/WS)
 
 **Files:**
 - Create: `apps/server/src/server.ts`
@@ -1191,7 +1232,7 @@ git commit -m "feat: add KAP-compatible server"
 
 ---
 
-## Task 18: ACP server
+## Task 18: Optional ACP server
 
 **Files:**
 - Create: `packages/acp/src/server.ts`
@@ -1236,7 +1277,7 @@ git commit -m "feat: add ACP server"
 
 ---
 
-## Task 19: SEA packaging
+## Task 19: Optional SEA packaging
 
 **Files:**
 - Create: `apps/cli/scripts/build-sea.mjs`
@@ -1286,10 +1327,11 @@ git commit -m "build: add SEA packaging and asset verification"
 | Area | Command | Expected |
 | --- | --- | --- |
 | Config | `pnpm vitest run packages/agent-core/test/config` | pass |
-| Events | `pnpm vitest run packages/agent-core/test/event` | pass |
-| Wire | `pnpm vitest run packages/agent-core/test/session` | pass |
+| Events | `pnpm vitest run packages/agent-core/test/event` | pass, including append-failure atomicity |
+| Wire | `pnpm vitest run packages/agent-core/test/session` | pass, including metadata corruption and locks |
 | LLM | `pnpm vitest run packages/core/test/llm` | pass |
 | Loop | `pnpm vitest run packages/core/test/loop` | pass |
+| Context | `pnpm vitest run packages/agent-core/test/context` | legal splits; empty summary leaves history unchanged |
 | Tools | `pnpm vitest run packages/agent-core/test/tool` | pass |
 | Bash | `pnpm vitest run packages/agent-core/test/tool/bash.test.ts` | pass |
 | Dangerous | `pnpm vitest run packages/agent-core/test/permission/dangerousCommand.test.ts` | pass |
@@ -1298,48 +1340,56 @@ git commit -m "build: add SEA packaging and asset verification"
 | Subagents | `pnpm vitest run packages/agent-core/test/subagent` | pass |
 | MCP | `pnpm vitest run packages/agent-core/test/mcp` | pass |
 | Skills | `pnpm vitest run packages/agent-core/test/skills` | pass |
-| Server | `pnpm vitest run apps/server/test` | pass |
-| ACP | `pnpm vitest run packages/acp/test` | pass |
-| SEA | `pnpm vitest run apps/cli/test/sea.test.ts` | pass |
+| CLI E2E | `pnpm vitest run apps/cli/test/e2e.test.ts` | real process: prompt/approval/exit/resume/continue |
+| Optional Server | `pnpm vitest run apps/server/test` | pass when KAP is selected |
+| Optional ACP | `pnpm vitest run packages/acp/test` | pass when ACP is selected |
+| Optional SEA | `pnpm vitest run apps/cli/test/sea.test.ts` | pass when SEA is selected |
 | Types | `pnpm typecheck` | exit 0 |
 | Lint | `pnpm lint` | exit 0 |
 
-## Definition of Done
+## 完成定义
 
-- A new session can be created, prompted, tool-called, persisted, and resumed.
-- `wire.jsonl` replays to the same state after restart.
-- Tool results are in call order; duplicate IDs are normalized.
-- `manual/yolo/auto` match the scenario table in doc 14.
-- Dangerous-command vectors in doc 15A pass.
-- Sensitive files are hard-blocked for file tools; the Bash bypass is documented.
-- Subagents are isolated and cannot recurse by default.
-- MCP tools are named `mcp__server__tool` and collisions are visible.
-- Skills respect project > user > extra > builtin.
-- KAP rejects missing token / bad Host / bad Origin.
-- SEA binary starts offline and rejects a tampered asset.
+核心 CLI 必须同时满足：
 
-## Out of Scope (for this plan)
+- 真实 CLI 进程能创建会话、prompt、调用工具、完成审批、退出、恢复并继续对话。
+- `wire.jsonl` 重放得到相同状态；撕裂尾可恢复；追加失败不会先提交内存状态。
+- 工具结果按调用顺序排列；重复 ID 归一化；压缩不会切开 tool exchange，空摘要不替换历史。
+- `manual/yolo/auto` 符合 14 篇场景表；危险命令向量以 15A 为准。
+- 文件工具硬阻断敏感文件。Bash 不具备同等边界，产品必须明确不支持直接执行不可信仓库；这类任务只能在外部 OS/容器沙箱中运行。
+- 子代理隔离且默认不能递归；MCP 工具命名和冲突可见；Skills 优先级正确。
+- `pnpm typecheck`、`pnpm lint` 和核心测试全部通过。
 
-- Tower missions and worktree merge gates (doc 19).
-- Desktop/VS Code shells.
-- OAuth flows for MCP/Kimi providers (start with static keys).
-- Dynamic tool loading (`select_tools`) — add after the core loop is stable.
-- Full compaction algorithm — start with manual truncation, then add auto.
+KAP、ACP、SEA 只有选择相应可选任务时才需要验收，不阻塞核心 CLI 完成。
 
-## Self-Review
+## 本计划明确不做
 
-- Spec coverage: each of docs 01–26 has at least one owning task, except Tower (explicitly out of scope) and telemetry (not required for behavior).
-- Type consistency: `Message`, `ToolCall`, `ToolResult`, `PermissionMode`, `PermissionRule` names match docs 06/08/14.
-- Review Focus: five failure modes each have a test in Tasks 5, 6, 11, 12, and 3.
-- Proportion: tasks specify signatures and acceptance, not full bodies; bodies belong to the implementer.
+- Desktop/VS Code 外壳。
+- 完整 DI Cascade（03）；首版使用显式生命周期。
+- Tower 和 Swarm（19）。
+- Hooks（17）、插件（13）、远程环境与远程控制（20/21）。
+- MCP/Kimi OAuth（先使用静态 key）。
+- 动态工具 `select_tools`（10）。
+- 自动溢出压缩与完整恢复策略（07）；本计划只实现安全投影和手动压缩。
+- 会话索引 SQLite、完整 fork/undo/export、全部内置工具与四协议 parity；当前任务只覆盖明确列出的子集。
 
-## Execution Handoff
+## 覆盖与复核
 
-Plan complete and saved to `docs/27-reimplementation-task-plan.md`.
+| 文档 | 本计划覆盖 |
+| --- | --- |
+| 01/02/04/05/06/08/09 | 部分：CLI、事件、循环、OpenAI、核心工具；其余见非目标 |
+| 03 | 仅保留显式生命周期；完整 DI/Cascade 不做 |
+| 07 | 部分：安全投影、合法切割、手动压缩 |
+| 10/13/17/19/20 | 不做，或只做研究引用 |
+| 11/12/14/14A/15/15A/16/18/22/23/24 | 部分覆盖，以各任务列出的接口和测试为准 |
+| 21 | 核心覆盖 TUI/headless；ACP/KAP/远程为可选或不做 |
+| 25 | 范围与里程碑 owner；本文件不得与其冲突 |
+| 26 | 仅可选 SEA 任务使用资产校验方法，不继承过强的等价结论 |
 
-Two execution options:
+- 五类重点风险分别由 Tasks 5、6、11、12/外部沙箱约束、2/3 覆盖；第四项是明确产品限制，不伪装成已防护。
+- 类型名与 06/08/14 对齐；任务只给签名和验收，具体实现由执行者完成。
 
-- **Subagent-driven** — a fresh subagent implements each task, a fresh reviewer checks it, then a whole-branch review. Best when tasks touch shared interfaces (Tasks 2–12) and a mistake is expensive.
-- **Native** — implement all tasks in one session, then one fresh review. Cheaper and faster; suitable if you are following the docs closely.
+## 执行交接
 
-Recommended: **Subagent-driven** for Tasks 2–12 (event/wire/loop/permissions), then **Native** for surfaces (Tasks 16–19), because the core interfaces are where drift hurts most.
+本文件位于仓库根目录 `27-reimplementation-task-plan.md`。
+
+按 Task 0–16 顺序实现核心 CLI；每个任务先运行失败测试，再实现并通过验收。Tasks 17–19 只在选择对应可选能力时执行。完成核心任务后，必须另做一次跨任务审查，重点检查事件持久化、tool 配对、压缩切割和权限顺序。

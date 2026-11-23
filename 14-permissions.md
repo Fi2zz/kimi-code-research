@@ -132,7 +132,7 @@ if 守卫关闭 → undefined
 
 ### 3.9 git-control-path-access-ask
 
-Write/Edit 目标是 `.git/` 等控制路径 → ask（在 git-cwd 自动放行之前）。
+任意文件工具的访问目标包含 `.git/` 等控制路径 → ask，包括 Read；该策略在默认只读白名单、yolo 放行和 git-cwd 自动放行之前。逐函数依据见 `14A-permissions-function-level.md` §5.10。
 
 ### 3.10 yolo-mode-approve
 

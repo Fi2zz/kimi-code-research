@@ -159,6 +159,8 @@ interface IEventDispatcher {
 
 错误策略：写入失败记录日志并上报，不向调用方抛（避免一个持久化错误打断整个 turn）。
 
+> 风险：状态提交发生在 wire append 之前，因此追加失败会造成"内存状态已更新、持久化日志缺事件"。重启后这部分状态会丢失。重实现不能只复制这一容错策略：应让调用方和会话状态明确感知持久化失败，并阻止继续产生未落盘的副作用，或将会话标记为 degraded。
+
 ---
 
 ## 6. wire.jsonl：物理格式
@@ -177,7 +179,7 @@ interface WireMetadataRecord {
 }
 ```
 
-> 注意：这里说的是 **wire 协议 1.5**。KAP（Web/桌面用的 REST/WS 协议）是 **1.0.0**，不要混用。二进制核验（26 篇）在 `/api/v1/meta` 同时看到了 `kimi_agent_protocol_version: "1.0.0"` 与 bundle 内的 `WIRE_PROTOCOL_VERSION` 1.5。
+> 注意：这里说的是 **wire 协议 1.5**。CLI `kimi web` 使用的 KAP（REST/WS 协议）是 **1.0.0**，不要混用。二进制核验（26 篇）在 `/api/v1/meta` 看到了 `kimi_agent_protocol_version: "1.0.0"`，并在 bundle 内找到了 `WIRE_PROTOCOL_VERSION` 1.5。
 
 每个 agent 一个文件：
 
@@ -355,7 +357,7 @@ zip 内容：
 
 - 会话目录递归（排除 file-history blob）；
 - `manifest.json`：sessionId、exportedAt、version、wireProtocolVersion、os、node、首末活动时间、title、workspaceDir、可选日志；
-- 可选 session log / global log / web log / desktop log。
+- 可选 session log / global log / web log；`desktop log` 仅属于上游 Desktop 导出，不是 CLI 必需项。
 
 注意：**没有对应的 zip 导入**。`import-sessions` 是另一件事——导入 Claude Code / Codex 的会话，不是恢复 Kimi 的 zip。
 

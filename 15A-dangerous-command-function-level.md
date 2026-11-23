@@ -703,7 +703,7 @@ command 分支扫描 args，遇 `-v` → 返回 undefined（安全）。
 
 - 用官方 tree-sitter-bash WASM；
 - 或先做"分词 + 递归下降"只覆盖 `command`/`word`/引号；
-- 但**必须**实现包装递归和 fail-closed，否则等于正则。
+- 但**必须**实现包装递归，并明确各模式的失败语义：manual 对 `unanalyzable` fail-closed（ask），yolo 则 fail-open（放行）；否则就退化为正则黑名单。
 
 ---
 

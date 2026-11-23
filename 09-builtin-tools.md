@@ -344,7 +344,7 @@
 {
   questions: Array<{
     question: string;              // 必须以 ? 结尾
-    header: string;                // ≤12 字符
+    header?: string;               // 可选，≤12 字符
     options: Array<{ label; description }>; // 2-4
     multi_select?: boolean;
   }>;                              // 1-4 个
@@ -369,7 +369,7 @@
 
 - 实验特性；需 `notify_user` flag。
 - 只在成功显示后出现；失败/中断不展示。
-- TUI 在输入框上方 Updates 面板；Web/桌面在对话中显示进度行。
+- TUI 在输入框上方 Updates 面板；可选 `kimi web` 在对话中显示进度行。上游 Desktop 的展示不属于本文范围。
 - 不结束 turn。
 
 ---
@@ -456,7 +456,7 @@
 ```
 
 - 返回 8 位 hex id、`humanSchedule`、`nextFireAt`。
-- 抖动：循环任务前移 `min(10% 周期, 15min)`；整点/半点一次性任务前移 ≤90s。
+- 抖动：循环任务向后偏移 `min(10% 周期, 15min)`；整点/半点一次性任务向后偏移 ≤90s，避免大量任务同时触发。
 - 睡醒后错过的多次只触发一次，带 `coalescedCount`。
 - 存活 >7 天的循环任务最后触发一次（`stale=true`）后删除。
 - 需审批。
@@ -475,12 +475,12 @@
 
 | 工具 | 参数 | 说明 |
 | --- | --- | --- |
-| `CreateGoal` | `objective`, `token_budget?` | 创建目标 |
-| `GetGoal` | 无 | 查询状态 |
-| `SetGoalBudget` | `token_budget` | 设置/调整预算 |
-| `UpdateGoal` | `status`, `note?` | active/paused/cancelled/complete/blocked |
+| `CreateGoal` | `objective`, `completionCriterion?` | 创建目标；完成标准用于验证结束状态 |
+| `GetGoal` | 无 | 查询状态、目标、剩余预算和终止原因 |
+| `SetGoalBudget` | `value`, `unit` | 设置硬预算；unit 为 turns/tokens/milliseconds/seconds/minutes/hours |
+| `UpdateGoal` | `status` | active/complete/blocked；active 用于恢复暂停或阻塞的目标 |
 
-目标跨 turn；预算只在实际工作时计时；完成后清理并总结。
+目标跨 turn；时间预算只在实际工作时计时；完成或阻塞后由运行时输出相应总结。
 
 ---
 

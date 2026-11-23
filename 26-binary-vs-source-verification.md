@@ -2,7 +2,7 @@
 
 > 日期：2026-11-23  
 > 对象：`~/.kimi-code/bin/kimi`（v2.7.2）与 `MoonshotAI/kimi-code` 仓库。  
-> 结论先说：**二进制对应 tag `@moonshot-ai/kimi-code@2.7.2`，不是当前 main。** 核心权限/工具代码在 tag 与 main 之间没有变化，因此本套文档对二进制仍然成立。
+> 结论先说：**二进制的来源与 tag `@moonshot-ai/kimi-code@2.7.2` 高度吻合，且不同于当前 main 的文件树。** 已比对的核心权限/工具源码在 tag 与 main 之间没有变化；这为二进制行为分析提供了强证据，但不等于逐文件内容或全部运行行为已经证明一致。
 
 ---
 
@@ -24,13 +24,13 @@
 | KAP 协议版本 | `1.0.0`（注意：不是 wire 的 1.5） |
 | Wire 协议版本 | `1.5`（bundle 内常量） |
 
-**判定**：二进制由 tag 2.7.2 构建；main 比 tag 多 625 个文件变更，但**权限链、危险命令、路径守卫、计划审阅**这些核心语义未变。文档可以放心引用。
+**判定**：现有证据强烈支持二进制由 tag 2.7.2 构建；main 比 tag 多 625 个文件变更，但已比对的**权限链、危险命令、路径守卫、计划审阅**核心源码未变。引用这些机制时证据较强；其他子系统仍需按 tag 或运行时单独核验。
 
 ---
 
 ## 2. 方法
 
-不是"跑一下 strings 就下结论"，而是四层证据：
+不是"跑一下 strings 就下结论"，而是五类证据：
 
 1. **Mach-O 段定位**：找到 `NODE_SEA` 段与 `__NODE_SEA_BLOB` section。
 2. **SEA 资产表解析**：按 `[u64 name_len][name][u64 data_len][data]` 扫描，抽出全部内嵌资产。
@@ -216,7 +216,7 @@ packages/core/src/loop/hook/run.ts
 packages/core/src/tool/hook-composer.ts
 ```
 
-这些是 tag 之后被移动/删除的文件。**tag 2.7.2 全命中**，这是"二进制 == tag"的最强证据。
+这些是 tag 之后被移动/删除的文件。**tag 2.7.2 全命中**，这是判断二进制来源与 tag 高度吻合的强证据；它比较的是路径集合，不是文件内容哈希。
 
 ---
 
@@ -255,8 +255,8 @@ packages/agent-core-v2/src/tool/executor/index.ts         | 1 -
 
 结论：
 
-- 本文档基于 main，但**权限、危险命令、路径守卫、计划审阅**的语义与二进制一致。
-- 其它子系统（TUI、会话、MCP 等）可能存在 2.7.2 之后的增量；引用时以 tag 为准更稳。
+- 本文档基于 main；已比对的**权限、危险命令、路径守卫、计划审阅**源码在 tag 与 main 间相同，bundle 中也存在相应实现标记。
+- 这些证据支持相关机制的二进制分析，但不替代逐函数内容比对或运行时测试。其它子系统（TUI、会话、MCP 等）可能存在 2.7.2 之后的增量；引用时以 tag 为准更稳。
 
 ---
 
@@ -301,7 +301,7 @@ KIMI_CODE_HOME=$H ~/.kimi-code/bin/kimi web --no-open --json --port 59999
 
 | 协议 | 版本 | 用途 |
 | --- | --- | --- |
-| KAP（REST/WS） | **1.0.0** | Web/桌面与 server 通信 |
+| KAP（REST/WS） | **1.0.0** | CLI `kimi web` 与 server 通信；上游 Desktop 也复用 |
 | Wire（`wire.jsonl`） | **1.5** | 会话事件日志 |
 
 写文档/实现时不要混用。`kimi_agent_protocol_version` 是 KAP，`protocol_version`（wire metadata）是 1.5。
@@ -339,7 +339,7 @@ TaskList 11, TaskOutput 12, TaskStop 12, WaitFor 16,
 CronCreate 6, CronDelete 6
 ```
 
-这证明：bundle 不是"简化版"，权限、工具、动态加载、压缩、wire 都在。
+这说明 bundle 包含权限、工具、动态加载、压缩和 wire 的相关实现标记；字符串存在性不能证明各功能的完整行为。
 
 ---
 
@@ -418,7 +418,7 @@ curl -H "Authorization: Bearer <token>" http://127.0.0.1:59999/api/v1/meta
 4. **没有验证所有系统调用行为**：运行时只验了 KAP 元数据，没有逐工具执行。
 5. **manifest 哈希是 blob 内自洽**，不是外部信任根。
 
-这些不影响"文档语义与二进制一致"的结论，但影响"二进制绝对可信"的结论。
+因此，本文只能得出"来源高度吻合、部分核心机制有较强一致性证据"，不能得出"全部文档语义与二进制一致"或"二进制绝对可信"。
 
 ---
 

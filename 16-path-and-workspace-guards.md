@@ -123,8 +123,8 @@ if (policy.checkSensitive && isSensitiveFile(canonical)) {
 
 `git-control-path-access-ask`：
 
-- Write/Edit 目标是 `.git/` 下（config、hooks 等）→ ask；
-- 排在 `git-cwd-write-approve` 之前，所以 git 工作区自动放行**不覆盖** `.git`。
+- 任意文件工具访问 `.git/` 等控制路径（config、hooks 等）→ ask，Read 也包含在内；
+- 排在默认只读白名单、yolo 放行与 `git-cwd-write-approve` 之前，所以这些放行规则均**不覆盖** `.git`。
 
 `git-cwd-write-approve`：
 
@@ -152,7 +152,7 @@ if (policy.checkSensitive && isSensitiveFile(canonical)) {
 
 信任的边界：
 
-- **覆盖**：项目 MCP、项目权限规则、项目 skill/agent、项目 hooks（如果有）。
+- **覆盖**：项目 MCP、项目权限规则、项目 skill/agent。项目级 hooks 不存在，见 17 篇。
 - **不覆盖**：插件（插件是用户级安装，不看工作区信任）。
 
 ---
@@ -174,7 +174,7 @@ if (policy.checkSensitive && isSensitiveFile(canonical)) {
 1. **Bash 是后门**：`cat .env`、`cp ~/.ssh/id_rsa /tmp` 不受文件守卫约束。
 2. **Grep/Glob 只过滤结果**：如果搜索模式本身泄漏路径/内容，仍可能暴露。
 3. **符号链接**：`canonicalizePath` 做的是字面规范化，是否解析 symlink 取决于底层 fs；重实现时建议 realpath 后再判定。
-4. **大小写**：macOS 默认大小写不敏感，但代码只在 win32 做大小写归一；`.ENV` 在 macOS 可能绕过（`isSensitiveFile` 自身做了 lowercase，所以文件名层面没问题；路径后缀也 lowercase）。
+4. **大小写**：路径比较只在 win32 做大小写归一；`isSensitiveFile` 自身会对文件名和路径后缀做 lowercase，因此 `.ENV` 不会仅因这一点绕过。其它路径包含判断仍应按目标文件系统语义测试。
 5. **工作区外绝对路径**：允许，只是要审批；不要把"ask"当成"禁止"。
 6. **信任模式**：`require_trust=false` 会让项目配置无确认加载。
 7. **`additionalDirs`**：显式加入的目录享受工作区同等待遇；不要误以为"只有 cwd"。

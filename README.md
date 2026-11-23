@@ -1,9 +1,16 @@
-# Kimi Code 逆向调研文档集
+# Kimi Code CLI 逆向调研文档集
 
 研究对象：`MoonshotAI/kimi-code` v2.7.2（commit `e12cad1`，MIT）与本机 `~/.kimi-code/bin/kimi`。
-方法：源码阅读 + 本地二进制静态检查（含 SEA 资产抽取/哈希校验）+ 真实会话 `wire.jsonl` + 官方文档。共 29 篇，约 10,000 行。
+方法：源码阅读 + 本地二进制静态检查（含 SEA 资产抽取/哈希校验）+ 真实会话 `wire.jsonl` + 官方文档。共 29 篇，约 11,000 行。
 
-> 这些文档是**调研**，不是实现代码。每篇都给出接口、算法、格式、不变量、失败模式与证据路径，目标是"照着能重建"。
+> 这些文档是**调研**，不是实现代码。每篇都给出接口、算法、格式、不变量、失败模式与证据路径，目标是理解并选择性重建 Kimi Code CLI 与核心 agent 运行时。
+
+## 范围
+
+- **主范围**：CLI 的 TUI、headless、配置、会话、Agent 循环、LLM、上下文、工具、权限、安全与扩展机制。
+- **CLI 附加入口**：`kimi acp`、`kimi web` / KAP、`kimi rc`。它们不是首版重实现的必要条件。
+- **非目标**：Kimi Code Desktop、VS Code 扩展及其 Electron/webview/UI 细节。上游仓库中的相关路径只用于说明代码归属，不用于推导 CLI 行为。
+- **共享引擎的边界**：不同入口可以复用权限、工具与会话核心逻辑，但不因此获得相同的 UI、配置或产品能力。
 
 ---
 
@@ -11,7 +18,7 @@
 
 | # | 文档 | 一句话 |
 | --- | --- | --- |
-| 01 | [产品与仓库地图](01-product-and-repo.md) | 六种表面、单二进制构成、数据目录 |
+| 01 | [产品与仓库地图](01-product-and-repo.md) | CLI 入口、可选接入、单二进制构成、数据目录 |
 | 02 | [构建与发布](02-build-and-release.md) | Node SEA 五步、资源打包、签名、更新 |
 | 03 | [DI 架构](03-architecture-di.md) | DI × Scope、装饰器、集合、级联、释放 |
 | 04 | [事件与会话](04-events-and-sessions.md) | Event2、状态折叠、wire.jsonl、重放、分叉 |
@@ -33,7 +40,7 @@
 | 18 | [子代理](18-subagents.md) | Agent 工具、隔离、resume、超时 |
 | 19 | [Swarm 与 Tower](19-swarm-and-tower.md) | 批量并行、worktree mission、合并门禁 |
 | 20 | [环境与远程执行](20-environments.md) | ssh/docker、能力模型、协议、限制 |
-| 21 | [表面层](21-surfaces.md) | TUI、KAP、ACP、桌面、远程控制 |
+| 21 | [CLI 入口与附加服务](21-surfaces.md) | TUI、headless、ACP、可选 KAP/远程控制 |
 | 22 | [配置系统](22-configuration.md) | 分层、env 绑定、TOML、热更新 |
 | 23 | [数据与格式](23-data-and-formats.md) | 目录、wire、state.json、索引、导出 |
 | 24 | [安全模型](24-security-model.md) | 资产、边界、攻击树、缺口 |
@@ -54,7 +61,7 @@
 7. **没有 OS 级沙箱**：所有限制都是应用层策略；远程环境也不是沙箱。
 8. **工具分 inline/deferred**：`select_tools` 按需注入 schema，长会话/大量 MCP 的关键优化。
 9. **子代理默认不能递归派发**；Tower worker/reviewer 强制 Never Ask。
-10. **多表面共用同一个 v2 引擎**：TUI/Web/桌面/ACP/SDK 行为一致。
+10. **CLI 各入口复用同一个 v2 引擎**：TUI、headless 与 ACP 共享权限、工具和会话核心逻辑；这不等于 Desktop、VS Code 等其他产品形态具有相同的完整行为。
 
 ---
 
@@ -72,12 +79,12 @@
 
 ---
 
-## 已知未覆盖
+## 已知未覆盖与非目标
 
 - 具体的模型服务端行为（闭源 API）。
 - Tower 的极端并发/故障恢复。
-- 桌面/VS Code 的 UI 细节。
 - 遥测服务端。
 - 部分历史迁移代码。
+- Desktop、VS Code 扩展及其 UI 是明确的非目标，不属于"尚未覆盖的 CLI 行为"。
 
-这些不影响"重建一个同构系统"。
+这些缺口不妨碍重建一个 CLI 核心系统，但意味着不能据此声称完整复刻整个 Kimi Code 产品族。

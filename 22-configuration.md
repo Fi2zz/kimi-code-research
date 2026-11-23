@@ -8,8 +8,8 @@
 
 | 栈 | 位置 | 用途 |
 | --- | --- | --- |
-| v2 `ConfigService` | `agent-core-v2/src/app/config/` | KAP/ACP/桌面/SDK；按 domain 注册、可变、热更新 |
-| v1 `KimiConfig` | `node-sdk/src/config/` | `KimiHarness.getConfig()`、TUI/VS Code 的 provider 写入；整文件解析 |
+| v2 `ConfigService` | `agent-core-v2/src/app/config/` | CLI 核心及 KAP/ACP/SDK；按 domain 注册、可变、热更新 |
+| v1 `KimiConfig` | `node-sdk/src/config/` | `KimiHarness.getConfig()` 与 TUI 的 provider 写入；整文件解析。上游 VS Code 扩展也使用，但不属于本文范围 |
 
 重实现时只需要一套；建议采用 v2 的"domain + zod + 分层覆盖"。
 

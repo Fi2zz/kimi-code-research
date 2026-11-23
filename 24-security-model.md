@@ -163,10 +163,10 @@ Kimi 进程 ──► 模型 API（不可信内容）
 │  ├─ Grep/Glob → 结果过滤
 │  └─ Bash cat → 可绕过 ★
 ├─ 外泄数据
-│  ├─ FetchURL/WebSearch → 可 POST？(取决于实现)
+│  ├─ FetchURL/WebSearch → 若敏感值被放进 URL/查询词，可能随请求外泄
 │  └─ Bash curl → 可绕过 ★
 ├─ 执行恶意代码
-│  ├─ Bash ./script.sh → 危险分析判为 unanalyzable，yolo 放行 ★
+│  ├─ Bash ./script.sh → 未识别命令，判为 safe；manual 仍会落到 fallback ask，yolo 直接放行 ★
 │  └─ npm install → 不受限 ★
 ├─ 持久化
 │  ├─ 改 ~/.zshrc → Bash 可
@@ -226,7 +226,7 @@ Kimi 进程 ──► 模型 API（不可信内容）
 | `rm -rf /tmp/x` | 允许 |
 | `sudo sh -c 'rm -rf /'` | ask |
 | `bash -c "$CMD"` | unanalyzable → ask |
-| `./script.sh` | unanalyzable → ask（yolo 放行） |
+| `./script.sh` | 分析器判 safe；manual 由 fallback 策略 ask，yolo 放行 |
 | 写 `.git/config` | ask |
 | 写 `src/a.ts`（git 内） | manual 自动放行（需评审） |
 | 写工作区外相对路径 | 拒绝 |

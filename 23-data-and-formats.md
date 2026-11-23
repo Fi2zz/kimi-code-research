@@ -295,6 +295,8 @@ Agent 路径：`<session>/agents/<agentId>`。
 }
 ```
 
+`desktopVersion` 是可选的上游 Desktop 导出字段，不是 CLI 会话所必需。
+
 zip 内：会话目录（排除 file-history blob）+ manifest + 可选日志。
 
 **没有 zip 导入**；`import-sessions` 是 Claude Code/Codex 迁移。
@@ -313,6 +315,7 @@ zip 内：会话目录（排除 file-history blob）+ manifest + 可选日志。
 8. 不要在日志/遥测里写 token/密钥。
 9. 文件名/路径必须可跨平台（避免 `:` 等）。
 10. 同一目录只允许一个写者（session lock）。
+11. 原子写只能防止文件出现半写状态，不能保证"内存状态已提交、wire 追加失败"时仍可恢复；重实现必须把后者作为可见故障处理，见 04 篇。
 
 ---
 

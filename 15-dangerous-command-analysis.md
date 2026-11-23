@@ -300,8 +300,16 @@ echo "rm -rf /"
 ```bash
 bash -c "$CMD"
 eval "$(cat script.sh)"
-./deploy.sh
 ```
+
+**未识别命令会判为安全，而不是不可分析：**
+
+```bash
+./deploy.sh
+./script.sh
+```
+
+脚本内容不可见，但当前算法不会仅因命令是脚本就返回 `unanalyzable`；它会落入"其它命令 → safe"。这是已知漏报，不是保护机制。
 
 注意：`rm -rf $DIR` **不是**不可分析。`$DIR` 的字面量提取失败会让 `dropped=true`，但 `rm` 分支在 recursive+force 时仍直接判 `dangerous`（保守设计）。
 
@@ -313,7 +321,7 @@ eval "$(cat script.sh)"
 
 1. **只分析 Bash 工具**，不分析其它工具内部执行的命令。
 2. **只识别固定集合**：`chmod -R 000 /`、`> /dev/sda`、`find / -delete`、`git clean -fdx` 等不在列表。
-3. **脚本内容不可见**：`./script.sh` 只能判为不可分析。
+3. **脚本内容不可见**：`./script.sh` 不会因脚本身份而触发 `unanalyzable`；未识别命令会判为 safe。
 4. **变量/命令替换**：保守地判为不可分析，yolo 下放行。
 5. **编码/混淆**：`base64 -d | sh` 不会被展开。
 6. **别名/函数**：不解析 shell 启动文件。
@@ -332,7 +340,7 @@ eval "$(cat script.sh)"
 3. 实现命令收集 + 字面量提取。
 4. 实现 `sudo/env/sh -c/eval` 递归。
 5. 实现 `rm/dd/systemctl/init/mkfs` 规则。
-6. 做 fail-closed 策略（manual ask / yolo 放行）。
+6. 按模式处理失败：manual 对 `unanalyzable` fail-closed（ask）；yolo 明确 fail-open（放行）；auto 不运行该策略。
 7. 用第 9 节向量做测试。
 
 如果你不做纯 TS 解析器，至少要做到：

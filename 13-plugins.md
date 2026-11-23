@@ -178,7 +178,7 @@ GitHub 更新检查：显式 pin/ref/SHA 比较；tag/SHA pin 不更新；branch
 | skillInstructions | 附加到该插件的每个 skill 渲染 |
 | interface | 仅展示/本地化 |
 
-Electron 下 `node` 命令会被改写（`ELECTRON_RUN_AS_NODE=1` 或原生二进制 `__plugin_run_node` 子命令）。
+上游 Desktop 的 Electron 环境会改写 `node` 命令（`ELECTRON_RUN_AS_NODE=1` 或原生二进制 `__plugin_run_node` 子命令）；这不是 CLI 的默认行为。
 
 ---
 
